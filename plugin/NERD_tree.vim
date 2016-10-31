@@ -106,11 +106,13 @@ endif
 
 
 "SECTION: Init variable calls for key mappings {{{2
-call s:initVariable("g:NERDTreeMapActivateNode", "o")
+call s:initVariable("g:NERDTreeMapActivateNode", "<CR>")
 call s:initVariable("g:NERDTreeMapChangeRoot", "C")
 call s:initVariable("g:NERDTreeMapChdir", "cd")
 call s:initVariable("g:NERDTreeMapCloseChildren", "X")
-call s:initVariable("g:NERDTreeMapCloseDir", "x")
+call s:initVariable("g:NERDTreeMapOpenDir", "l")
+call s:initVariable("g:NERDTreeMapCloseParentDir", "x")
+call s:initVariable("g:NERDTreeMapCloseDir", "h")
 call s:initVariable("g:NERDTreeMapDeleteBookmark", "D")
 call s:initVariable("g:NERDTreeMapMenu", "m")
 call s:initVariable("g:NERDTreeMapHelp", "?")
@@ -2905,7 +2907,9 @@ function! s:dumpHelp()
         let @h=@h."\" ". (g:NERDTreeMouseMode ==# 1 ? "double" : "single") ."-click,\n"
         let @h=@h."\" ". g:NERDTreeMapActivateNode .": open & close node\n"
         let @h=@h."\" ". g:NERDTreeMapOpenRecursively .": recursively open node\n"
-        let @h=@h."\" ". g:NERDTreeMapCloseDir .": close parent of node\n"
+        let @h=@h."\" ". g:NERDTreeMapOpenDir .": open current dir\n"
+        let @h=@h."\" ". g:NERDTreeMapCloseParentDir .": close parent of node\n"
+        let @h=@h."\" ". g:NERDTreeMapCloseDir .": close current dir\n"
         let @h=@h."\" ". g:NERDTreeMapCloseChildren .": close all child nodes of\n"
         let @h=@h."\"    current node recursively\n"
         let @h=@h."\" middle-click,\n"
@@ -3513,6 +3517,8 @@ function! s:bindMappings()
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapToggleFiles ." :call <SID>toggleShowFiles()<cr>"
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapToggleBookmarks ." :call <SID>toggleShowBookmarks()<cr>"
 
+    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenDir ." :call <SID>openCurrentDir()<cr>"
+    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapCloseParentDir ." :call <SID>closeParentDir()<cr>"
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapCloseDir ." :call <SID>closeCurrentDir()<cr>"
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapCloseChildren ." :call <SID>closeChildren()<cr>"
 
@@ -3647,9 +3653,36 @@ function! s:closeChildren()
     call s:renderView()
     call currentNode.putCursorHere(0, 0)
 endfunction
-" FUNCTION: s:closeCurrentDir() {{{2
+" FUNCTION: s:openCurrentDir() {{{2
+" if current node is a directory, open it if closed, or
+" move to 1st visible child (if any)
+function! s:openCurrentDir()
+    let treenode = s:TreeFileNode.GetSelected()
+    if treenode ==# {}
+        call s:echo("Select a node first")
+        return
+    endif
+
+    if treenode.path.isDirectory
+        let dirNode = treenode
+        if dirNode.isOpen
+            " Move to 1st child if directory already opened
+            if dirNode.hasVisibleChildren()
+                let childNodes = dirNode.getVisibleChildren()
+                let targetNode = childNodes[0]
+                call targetNode.putCursorHere(0, 0)
+            endif
+        else
+            " Open directory
+            call dirNode.open()
+            call s:renderView()
+            call dirNode.putCursorHere(0, 0)
+        endif
+    endif
+endfunction
+" FUNCTION: s:closeParentDir() {{{2
 " closes the parent dir of the current node
-function! s:closeCurrentDir()
+function! s:closeParentDir()
     let treenode = s:TreeFileNode.GetSelected()
     if treenode ==# {}
         call s:echo("Select a node first")
@@ -3663,6 +3696,41 @@ function! s:closeCurrentDir()
         call treenode.parent.close()
         call s:renderView()
         call treenode.parent.putCursorHere(0, 0)
+    endif
+endfunction
+" FUNCTION: s:closeCurrentDir() {{{2
+" if current node is a directory, close it if open,
+" or move to parent (if any) otherwise.
+" if current node is a file, move to parent.
+function! s:closeCurrentDir()
+    let treenode = s:TreeFileNode.GetSelected()
+    if treenode ==# {}
+        call s:echo("Select a node first")
+        return
+    endif
+
+    " If current node is a file, move to parent
+    let parent = treenode.parent
+    if !treenode.path.isDirectory
+        call parent.putCursorHere(0, 0)
+        return
+    endif
+
+    " treenode is a directory...
+    let dirnode = treenode
+    if dirnode.isOpen
+        " ... If opened, close it; otherwise move to parent (if any)
+        call dirnode.close()
+        call s:renderView()
+        call dirnode.putCursorHere(0, 0)
+    else
+        " ... otherwise move to parent (if any)
+        if parent ==# {} || dirnode.isRoot()
+            call s:echo("won't go beyond tree root")
+        else
+            call parent.putCursorHere(0, 0)
+            return
+        endif
     endif
 endfunction
 " FUNCTION: s:closeTreeWindow() {{{2
